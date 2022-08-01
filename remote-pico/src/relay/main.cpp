@@ -18,12 +18,36 @@ const uint8_t address_write_node_B[6] = "4AAAA";
 const uint8_t pipe_B = 2;
 
 
-#define PACKETSIZE 18
-
 RF24 * radio = NULL;
 
 bool blink_error = false;
+bool blink_radio_failure = false;
 bool blink_traffic = false;
+
+int radio_failures = 0;
+
+const uint32_t LOOP_SLEEP_MS = 1000;
+
+
+static bool
+radio_init()
+{
+    if (!radio->begin()) {
+        return false;
+    }
+
+    radio->failureDetected = 0; 
+
+    radio->setPayloadSize(sizeof(float));
+    radio->setDataRate(RF24_250KBPS); // RF24_1MBPS default
+    radio->setCRCLength(RF24_CRC_16); // RF24_CRC_16 default
+
+    radio->openReadingPipe(pipe_A, address_read_node_A);
+    radio->openReadingPipe(pipe_B, address_read_node_B);
+
+    radio->startListening(); // set the radio in RX mode
+    return true;
+}
 
 
 static bool
@@ -38,19 +62,7 @@ setup()
 
     /* set up the radio */
     radio = new RF24(CE_PIN, CSN_PIN);
-    if (!radio->begin()) {
-        return false;
-    }
-    radio->setPayloadSize(PACKETSIZE);
-    radio->setDataRate(RF24_250KBPS); // RF24_1MBPS default
-    radio->setCRCLength(RF24_CRC_16); // RF24_CRC_16 default
-
-    radio->openReadingPipe(pipe_A, address_read_node_A);
-    radio->openReadingPipe(pipe_B, address_read_node_B);
-
-    radio->startListening(); // set the radio in RX mode
-
-    return true;
+    return radio_init();
 }
 
 
@@ -68,6 +80,11 @@ core1(void)
             blink_error = false;
         }
 
+        if (blink_radio_failure) { // blink fast for 10 seconds
+            pin_blink(PICO_DEFAULT_LED_PIN, 100, 100);
+            blink_radio_failure = false;
+        }
+
         sleep_ms(10);
     }
 
@@ -79,7 +96,7 @@ loop_function(void * arg)
 {
     (void) arg;
 
-    uint8_t buffer[PACKETSIZE];
+    uint8_t buffer[radio->getPayloadSize()];
     uint8_t pipe;
 
     // Check for a new packet
@@ -110,6 +127,7 @@ loop_function(void * arg)
 
     radio_send_packets(radio, buffer, 1);
     blink_traffic = true;
+    radio->startListening();
 }
 
 
@@ -126,8 +144,14 @@ main()
     multicore_launch_core1(&core1);
 
     while (true) {
+        if (radio->failureDetected) {
+            ++radio_failures;
+            blink_radio_failure = true;
+            radio_init();
+        }
+
         loop_function(NULL);
 
-        sleep_ms(10);
+        sleep_ms(LOOP_SLEEP_MS);
     }
 }

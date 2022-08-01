@@ -70,8 +70,9 @@ void
 radio_send_packets(RF24 * radio, uint8_t * packets, uint8_t npackets)
 {
     radio->stopListening();
+    uint8_t packet_size = radio->getPayloadSize();
     for (uint8_t i=0; i<npackets; ++i) {
-        radio->write(packets + i*PACKETSIZE, PACKETSIZE);
+        radio->write(packets + i*packet_size, packet_size);
     }
 }
 
@@ -117,7 +118,7 @@ radio_receive_packets_timeout(RF24 * radio, uint8_t * packets, uint8_t npackets,
         timeout -= t_elapsed;
         timeout = MAX(timeout, 0);
         
-        if (!radio_receive_packet_timeout(radio, packets + i*PACKETSIZE, pipe, timeout)) {
+        if (!radio_receive_packet_timeout(radio, packets + i*radio->getPayloadSize(), pipe, timeout)) {
             return false;
         }
     }
